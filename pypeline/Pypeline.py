@@ -20,7 +20,10 @@ class Pypeline:
         self.conn_from = conn_from
         self.conn_to = conn_to
 
-    def run(self, pypeline):
+    def run(self, pypeline, placeholders={}):
+        if(len(placeholders)):
+            self.placeholders = placeholders
+
         pype_configs = self.get_pypes(pypeline)
         for config in pype_configs:
             Pype.Pype(config, placeholders=self.placeholders).run(self.conn_from, self.conn_to)
