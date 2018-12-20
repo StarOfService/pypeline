@@ -6,18 +6,20 @@ import string
 from importlib import import_module
 
 class Pype:
+
+    default_config = {
+        'fields_excluded_from_update': [],
+        'post_query': 0,
+        'bulk_size': 2000
+    }
+
     def __init__(self, config, placeholders={}):
-        self.bulk_size = 2000
-        self.extract_query = config['extract_query']
-        self.target_table = config['target_table']
+        config = {**self.default_config, **config}
+        for config_field in config:
+            setattr(self, config_field, config[config_field])
+
         self.transformers = self.load_transformers(config['transformers'])
         self.placeholders = placeholders
-        self.post_query = 0
-        if('post_query' in config):
-            self.post_query = config['post_query']
-
-        if('bulk_size' in config):
-            self.bulk_size = config['bulk_size']
 
     def run(self, conn_from, conn_to):
         headers = []
@@ -58,8 +60,12 @@ class Pype:
 
     def build_load_query_on_conflict(self, fields):
         # removing ID from the list of fields to update in case of conflict
-        fields = filter(lambda field: field != 'id', fields)
-        fields_to_update = map(lambda field: "%s = excluded.%s"%(field, field), fields)
+        fields = list(filter(lambda field: field != 'id', fields))
+
+        if(self.fields_excluded_from_update):
+            fields = list(filter(lambda field: field not in self.fields_excluded_from_update, fields))
+
+        fields_to_update = list(map(lambda field: "%s = excluded.%s"%(field, field), fields))
         return "ON CONFLICT (id) DO UPDATE SET %s"%(','.join(fields_to_update));
 
     def upsert_data(self, conn, query, data):
