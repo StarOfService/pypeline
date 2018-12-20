@@ -7,12 +7,12 @@ from importlib import import_module
 
 class Pype:
     def __init__(self, config, placeholders={}):
+        self.bulk_size = 2000
         self.extract_query = config['extract_query']
         self.target_table = config['target_table']
         self.transformers = self.load_transformers(config['transformers'])
         self.placeholders = placeholders
         self.post_query = 0
-
         if('post_query' in config):
             self.post_query = config['post_query']
 
@@ -24,7 +24,7 @@ class Pype:
         insert_query = ''
         cursor_from = conn_from.cursor(dictionary=True)
         cursor_to = conn_to.cursor()
-        cursor_from.execute(self.extract_query)
+        cursor_from.execute(self.hydrate_query(self.extract_query))
 
         while True:
             # Extract
@@ -87,7 +87,7 @@ class Pype:
         cursor.execute(self.hydrate_query(self.post_query))
         conn.commit()
 
-    def hydrate_query(sefl, query):
-        for key, value in self.placeholders:
-            query = query.replace(key, value)
+    def hydrate_query(self, query):
+        for key in self.placeholders:
+            query = query.replace(key, self.placeholders[key])
         return query

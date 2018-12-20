@@ -22,7 +22,6 @@ class Pypeline:
 
     def run(self, pypeline):
         pype_configs = self.get_pypes(pypeline)
-
         for config in pype_configs:
             Pype.Pype(config, placeholders=self.placeholders).run(self.conn_from, self.conn_to)
 
