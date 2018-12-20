@@ -2,19 +2,22 @@ import datetime
 import mysql.connector
 import psycopg2
 import json
+import string
 from importlib import import_module
 
 class Pype:
-    def __init__(self, config):
-        self.bulk_size = 40
-
+    def __init__(self, config, placeholders={}):
         self.extract_query = config['extract_query']
         self.target_table = config['target_table']
         self.transformers = self.load_transformers(config['transformers'])
+        self.placeholders = placeholders
         self.post_query = 0
 
         if('post_query' in config):
             self.post_query = config['post_query']
+
+        if('bulk_size' in config):
+            self.bulk_size = config['bulk_size']
 
     def run(self, conn_from, conn_to):
         headers = []
@@ -47,7 +50,8 @@ class Pype:
         self.execute_post_query(conn_to, cursor_to)
 
     def build_load_query(self, table_name, headers):
-        return "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
+        query = "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
+        return self.hydrate_query(query)
 
     def build_load_query_insert(self, table_name, headers):
         return "INSERT INTO %s (SELECT * FROM json_populate_recordset(null::%s, %%s))"%(table_name, table_name)
@@ -78,7 +82,12 @@ class Pype:
         return transformers
 
     def execute_post_query(self, conn, cursor):
-        if(self.post_query):
-            cursor.execute(self.post_query)
-            conn.commit()
-        return
+        if not self.post_query:
+            return
+        cursor.execute(self.hydrate_query(self.post_query))
+        conn.commit()
+
+    def hydrate_query(sefl, query):
+        for key, value in self.placeholders:
+            query = query.replace(key, value)
+        return query
