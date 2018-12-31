@@ -1,8 +1,11 @@
-import datetime
 import mysql.connector
 import psycopg2
 import json
 import string
+import time
+import logging
+import os
+import psutil
 from importlib import import_module
 
 class Pype:
@@ -10,7 +13,9 @@ class Pype:
     default_config = {
         'fields_excluded_from_update': [],
         'post_query': 0,
-        'bulk_size': 2000
+        'bulk_size': 2000,
+        'debug': False,
+        'name': 'pype',
     }
 
     def __init__(self, config, placeholders={}):
@@ -24,18 +29,25 @@ class Pype:
     def run(self, conn_from, conn_to):
         headers = []
         insert_query = ''
+        total_count = 0
+        conn_from.ping(True)
         cursor_from = conn_from.cursor(dictionary=True)
         cursor_to = conn_to.cursor()
         cursor_from.execute(self.hydrate_query(self.extract_query))
 
         while True:
             # Extract
+            start_time = time.time()
             results = cursor_from.fetchmany(self.bulk_size)
             results_count = len(results)
+            total_count += results_count
+            extract_duration = time.time() - start_time
+
             if 0 == results_count:
                 break
 
             # Transform
+            start_time = time.time()
             for transformer in self.transformers:
                 results = list(map(transformer.filter, results))
 
@@ -43,8 +55,22 @@ class Pype:
                 headers = list(results[0].keys())
                 insert_query = self.build_load_query(self.target_table, headers)
 
+            transform_duration = time.time() - start_time
+
             # Load
+            start_time = time.time()
             self.upsert_data(conn_to, insert_query, results)
+            load_duration = time.time() - start_time
+
+            if self.debug:
+                logging.info('Pype: {0}, {1} items; ETL: {2:.2f} s., {3:.2f} s., {4:.2f} s.; Mem: {5:.2f} Mb.'.format(
+                    self.name,
+                    total_count,
+                    extract_duration,
+                    transform_duration,
+                    load_duration,
+                    psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+                ))
 
             if results_count < self.bulk_size:
                 break
@@ -55,14 +81,15 @@ class Pype:
         query = "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
         return self.hydrate_query(query)
 
-    def build_load_query_insert(self, table_name, headers):
+    @staticmethod
+    def build_load_query_insert(table_name, headers):
         return "INSERT INTO %s (SELECT * FROM json_populate_recordset(null::%s, %%s))"%(table_name, table_name)
 
     def build_load_query_on_conflict(self, fields):
         # removing ID from the list of fields to update in case of conflict
         fields = list(filter(lambda field: field != 'id', fields))
 
-        if(self.fields_excluded_from_update):
+        if self.fields_excluded_from_update:
             fields = list(filter(lambda field: field not in self.fields_excluded_from_update, fields))
 
         fields_to_update = list(map(lambda field: "%s = excluded.%s"%(field, field), fields))
@@ -93,7 +120,11 @@ class Pype:
         cursor.execute(self.hydrate_query(self.post_query))
         conn.commit()
 
-    def hydrate_query(self, query):
+    def hydrate_query(self, query, offset=False):
         for key in self.placeholders:
             query = query.replace(key, self.placeholders[key])
+
+        if offset:
+            query += ' OFFSET %s' % offset
+
         return query
