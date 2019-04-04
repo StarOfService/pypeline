@@ -16,6 +16,7 @@ class Pype:
         'bulk_size': 2000,
         'debug': False,
         'name': 'pype',
+        'is_delete': False,
     }
 
     def __init__(self, config, placeholders={}):
@@ -27,8 +28,6 @@ class Pype:
         self.placeholders = placeholders
 
     def run(self, conn_from, conn_to):
-        headers = []
-        insert_query = ''
         total_count = 0
         conn_from.ping(True)
         cursor_from = conn_from.cursor(dictionary=True)
@@ -51,16 +50,16 @@ class Pype:
             for transformer in self.transformers:
                 results = list(map(transformer.filter, results))
 
-            if 0 == len(headers):
-                headers = list(results[0].keys())
-                insert_query = self.build_load_query(self.target_table, headers)
-
             transform_duration = time.time() - start_time
 
-            # Load
             start_time = time.time()
-            self.upsert_data(conn_to, insert_query, results)
-            load_duration = time.time() - start_time
+
+            if self.is_delete is not None and self.is_delete:
+                self.delete(conn_to, results)
+            else:
+                self.load(conn_to, results)
+
+            update_duration = time.time() - start_time
 
             if self.debug:
                 logging.info('Pype: {0}, {1} items; ETL: {2:.2f} s., {3:.2f} s., {4:.2f} s.; Mem: {5:.2f} Mb.'.format(
@@ -68,7 +67,7 @@ class Pype:
                     total_count,
                     extract_duration,
                     transform_duration,
-                    load_duration,
+                    update_duration,
                     psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
                 ))
 
@@ -76,6 +75,21 @@ class Pype:
                 break
 
         self.execute_post_query(conn_to, cursor_to)
+
+    def delete(self, conn_to, results):
+        delete_query = self.build_delete_query(self.target_table, self.identifier)
+        self.delete_data(conn_to, delete_query, results)
+
+    def load(self, conn_to, results):
+        insert_query = ''
+        headers = []
+
+        if 0 == len(headers):
+            headers = list(results[0].keys())
+            insert_query = self.build_load_query(self.target_table, headers)
+
+        # Load
+        self.upsert_data(conn_to, insert_query, results)
 
     def build_load_query(self, table_name, headers):
         query = "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
@@ -128,3 +142,12 @@ class Pype:
             query += ' OFFSET %s' % offset
 
         return query
+
+    def build_delete_query(self, table_name, identifier):
+        return "DELETE FROM %s WHERE %s IN (%%s)"%(table_name, identifier)
+
+    def delete_data(self, conn, query, data):
+        c = conn.cursor()
+        ids = {str(item[self.identifier]) for item in data}
+        c.execute(query, [','.join(ids)])
+        conn.commit()
