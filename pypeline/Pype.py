@@ -144,10 +144,10 @@ class Pype:
         return query
 
     def build_delete_query(self, table_name, identifier):
-        return "DELETE FROM %s WHERE %s IN (%%s)"%(table_name, identifier)
+        return "DELETE FROM %s WHERE %s = ANY(%%s::uuid[])"%(table_name, identifier)
 
     def delete_data(self, conn, query, data):
         c = conn.cursor()
-        ids = {str(item[self.identifier]) for item in data}
-        c.execute(query, [','.join(ids)])
+        ids = list({str(item[self.identifier]) for item in data})
+        c.execute(query, (ids, ))
         conn.commit()
