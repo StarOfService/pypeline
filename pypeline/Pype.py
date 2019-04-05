@@ -88,6 +88,9 @@ class Pype:
             headers = list(results[0].keys())
             insert_query = self.build_load_query(self.target_table, headers)
 
+        if self.debug:
+            print(insert_query)
+
         # Load
         self.upsert_data(conn_to, insert_query, results)
 
