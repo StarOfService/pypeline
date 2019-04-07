@@ -81,48 +81,15 @@ class Pype:
         self.delete_data(conn_to, delete_query, results)
 
     def load(self, conn_to, results):
-        # insert_query = ''
+        insert_query = ''
         headers = []
 
         if 0 == len(headers):
             headers = list(results[0].keys())
-            # insert_query = self.build_load_query(self.target_table, headers)
+            insert_query = self.build_load_query(self.target_table, headers)
 
         # Load
-        # self.upsert_data(conn_to, insert_query, results)
-        self.upsert_data_v2(conn_to, headers, results)
-
-    def upsert_data_v2(self, conn,  headers, results):
-        values = []
-        replacements = []
-
-        if self.fields_excluded_from_update:
-            headers = list(filter(lambda field: field not in self.fields_excluded_from_update, headers))
-
-        fields_to_update = list(map(lambda field: "%s = excluded.%s" % (field, field), headers))
-        values_placeholder = ','.join(['%s'] * len(headers))
-
-        for row in results:
-            values.append('(' + values_placeholder + ')')
-
-            for field in headers:
-                replacements.append(row[field])
-
-        query = '''
-            INSERT INTO {table_name} ({fields}) 
-            VALUES {values}
-            ON CONFLICT (id) 
-            DO UPDATE SET {fields_to_update}
-        '''.format(
-            values=','.join(values),
-            fields=','.join(headers),
-            table_name=self.target_table,
-            fields_to_update=','.join(fields_to_update)
-        )
-
-        c = conn.cursor()
-        c.execute(query, replacements)
-        conn.commit()
+        self.upsert_data(conn_to, insert_query, results)
 
     def build_load_query(self, table_name, headers):
         query = "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
