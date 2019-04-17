@@ -16,7 +16,7 @@ class Pype:
         'bulk_size': 2000,
         'debug': False,
         'name': 'pype',
-        'is_delete': False,
+        'type': 'upsert',
     }
 
     def __init__(self, config, placeholders={}):
@@ -54,7 +54,7 @@ class Pype:
 
             start_time = time.time()
 
-            if self.is_delete is not None and self.is_delete:
+            if self.type is not None and 'delete' == self.type:
                 self.delete(conn_to, results)
             else:
                 self.load(conn_to, results)
@@ -81,15 +81,15 @@ class Pype:
         self.delete_data(conn_to, delete_query, results)
 
     def load(self, conn_to, results):
-        insert_query = ''
-        headers = []
+        headers = list(results[0].keys())
 
-        if 0 == len(headers):
-            headers = list(results[0].keys())
-            insert_query = self.build_load_query(self.target_table, headers)
+        if self.type is not None and 'update' == self.type:
+            query = self.build_update_query(self.target_table, headers)
+        else:
+            query = self.build_load_query(self.target_table, headers)
 
         # Load
-        self.upsert_data(conn_to, insert_query, results)
+        self.upsert_data(conn_to, query, results)
 
     def build_load_query(self, table_name, headers):
         query = "%s %s"%(self.build_load_query_insert(table_name, headers), self.build_load_query_on_conflict(headers))
@@ -100,14 +100,28 @@ class Pype:
         return "INSERT INTO %s (SELECT * FROM json_populate_recordset(null::%s, %%s))"%(table_name, table_name)
 
     def build_load_query_on_conflict(self, fields):
+        fields = self.remove_fields_excluded_from_update(fields)
+        fields_to_update = list(map(lambda field: "%s = excluded.%s"%(field, field), fields))
+
+        return "ON CONFLICT (id) DO UPDATE SET %s"%(','.join(fields_to_update));
+
+    def build_update_query(self, table_name, fields):
+        fields = self.remove_fields_excluded_from_update(fields)
+        fields_to_update = list(map(lambda field: "%s = records.%s"%(field, field), fields))
+
+        query = "UPDATE %s AS target SET %s FROM (SELECT * FROM json_populate_recordset(null::%s, %%s)) " \
+                "AS records WHERE target.id=records.id;"
+
+        return query % (table_name, ','.join(fields_to_update), table_name)
+
+    def remove_fields_excluded_from_update(self, fields):
         # removing ID from the list of fields to update in case of conflict
         fields = list(filter(lambda field: field != 'id', fields))
 
         if self.fields_excluded_from_update:
             fields = list(filter(lambda field: field not in self.fields_excluded_from_update, fields))
 
-        fields_to_update = list(map(lambda field: "%s = excluded.%s"%(field, field), fields))
-        return "ON CONFLICT (id) DO UPDATE SET %s"%(','.join(fields_to_update));
+        return fields
 
     def upsert_data(self, conn, query, data):
         c = conn.cursor()
