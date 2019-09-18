@@ -146,6 +146,7 @@ class Pype:
         if not self.post_query:
             return
         cursor.execute(self.hydrate_query(self.post_query))
+        cursor.close()
         conn.commit()
 
     def hydrate_query(self, query, offset=False):
