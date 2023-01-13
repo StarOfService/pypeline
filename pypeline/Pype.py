@@ -73,7 +73,7 @@ class Pype:
 
             if results_count < self.bulk_size:
                 break
-
+        conn_from.commit()
         self.execute_post_query(conn_to, cursor_to)
 
     def delete(self, conn_to, results):
